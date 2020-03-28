@@ -1,0 +1,20 @@
+﻿---
+BasedOnStyle: Microsoft
+AllowShortIfStatementsOnASingleLine: Never
+AlwaysBreakTemplateDeclarations: 'Yes'
+BinPackParameters: 'false'
+BreakConstructorInitializers: BeforeComma
+ColumnLimit: '120'
+ConstructorInitializerAllOnOneLineOrOnePerLine: 'true'
+ConstructorInitializerIndentWidth: '2'
+IndentPPDirectives: AfterHash
+IndentWidth: '2'
+Language: Cpp
+NamespaceIndentation: All
+PointerAlignment: Left
+SpaceAfterTemplateKeyword: 'false'
+SpaceBeforeCtorInitializerColon: 'true'
+TabWidth: '2'
+UseTab: Never
+
+...
