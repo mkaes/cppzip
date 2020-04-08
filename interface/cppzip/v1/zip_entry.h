@@ -36,7 +36,7 @@ namespace cppzip
       /**
        * Returns the name of the entry.
        */
-      std::string getName() const;
+      auto getEntryName() const -> std::string;
 
       /**
        * Returns the timestamp of the entry.
@@ -66,7 +66,7 @@ namespace cppzip
       /**
        * Returns the CRC of the file.
        */
-      int getCRC() const;
+      auto getCRC() const noexcept -> uint32_t;
 
       /**
        * Returns true if the entry is a directory.

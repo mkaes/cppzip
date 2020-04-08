@@ -43,7 +43,7 @@ namespace cppzip
         }
       }
 
-      std::string getName() const
+      auto getEntryName() const
       {
         return m_local_file_header.file_name;
       }
@@ -68,7 +68,7 @@ namespace cppzip
         return m_local_file_header.uncompressed_size;
       }
 
-      int getCRC() const
+      auto getCRC() const noexcept -> uint32_t
       {
         return m_local_file_header.crc32;
       }
@@ -167,9 +167,9 @@ namespace cppzip
     {
     }
 
-    std::string ZipEntry::getName() const
+    auto ZipEntry::getEntryName() const -> std::string
     {
-      return impl->getName();
+      return impl->getEntryName();
     }
 
     std::uint16_t ZipEntry::getCompressionMethod() const
@@ -192,7 +192,7 @@ namespace cppzip
       return impl->getUncompressedSize();
     }
 
-    int ZipEntry::getCRC() const
+    auto ZipEntry::getCRC() const noexcept -> uint32_t
     {
       return impl->getCRC();
     }

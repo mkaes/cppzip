@@ -21,7 +21,7 @@ namespace cppzip
     /**
      * The ZipArchive which represents a zip file or a in memory zip file
      */
-    class ZipArchive
+    class ZipArchive final
     {
     public:
       /**
@@ -47,7 +47,7 @@ namespace cppzip
       /**
        * Return the path of the ZipArchive. Empty when in memory
        */
-      std::string getPath() const;
+      auto getPath() const -> boost::filesystem::path;
 
       /**
        * Returns true if the ZipArchive is encrypted.
@@ -67,7 +67,7 @@ namespace cppzip
       /**
        * Returns the number of entries in this zip file (folders are included).
        */
-      std::int64_t getNumberOfEntries() const;
+      auto getNumberOfEntries() const noexcept -> int64_t;
 
       /**
        * Returns all the entries of the ZipArchive.
@@ -78,7 +78,7 @@ namespace cppzip
        * Return true if an entry with the specified name exists. If no such entry exists,
        * then false will be returned.
        */
-      bool hasEntry(const std::string& name) const;
+      auto hasEntry(const std::string& zipEntryName) const noexcept -> bool;
 
       /**
        * Return the ZipEntry for the specified entry name. If no such entry exists,
@@ -95,13 +95,13 @@ namespace cppzip
        * Add the specified file in the archive with the given entry. If the entry already exists,
        * it will be replaced. This method returns true if the file has been added successfully.
        */
-      bool addFile(const std::string& entryName, const std::string& file) const;
+      auto addFile(const std::string& entryName, const boost::filesystem::path& file) const -> bool;
 
       /**
        * Add the given data to the specified entry name in the archive. If the entry already exists,
        * its content will be erased.
        */
-      bool addData(const std::string& entryName, const void* data, std::uint64_t length);
+      auto addData(const std::string& entryName, const void* data, uint64_t length) -> bool;
 
       /**
        * Add the specified entry to the ZipArchive. All the needed hierarchy will be created.

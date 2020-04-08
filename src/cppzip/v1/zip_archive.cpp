@@ -22,67 +22,78 @@ namespace cppzip
     {
       constexpr uint16_t VERSION = 20;
 
-      constexpr uint16_t MakeFlags()
+      constexpr auto MakeFlags() -> uint16_t
       {
         return 0;
       }
 
-      constexpr uint16_t internalAttr()
+      constexpr auto internalAttr() -> uint16_t
       {
         return 0;
       }
 
-      constexpr uint32_t externalAttr()
+      constexpr auto externalAttr() -> uint32_t
       {
         return 0;
       }
 
-      struct TimeVal
+      time_t datetime_to_timestamp(uint16_t date, uint16_t time)
       {
-        int year;
-        int month;
-        int day;
-        int hour;
-        int minute;
-        int second;
-      };
+        tm timeStruct;
 
-      uint32_t dostime(int year, int month, int day, int hour, int minute, int second)
-      {
-        if (year < 1980 || year > 2107 || month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 ||
-            minute < 0 || minute > 59 || second < 0 || second > 59)
-        {
-          return 0;
-        }
-        return (((uint32_t)year - 1980) << 25) | (((uint32_t)month) << 21) | (((uint32_t)day) << 16) |
-               (((uint32_t)hour) << 11) | (((uint32_t)minute) << 5) | (((uint32_t)second) >> 1);
+        timeStruct.tm_year = ((date >> 9) & 0x7f) + 80;
+        timeStruct.tm_mon = ((date >> 5) & 0x0f) - 1;
+        timeStruct.tm_mday = ((date)&0x1f);
+
+        timeStruct.tm_hour = ((time >> 11) & 0x1f);
+        timeStruct.tm_min = ((time >> 5) & 0x3f);
+        timeStruct.tm_sec = ((time << 1) & 0x3f);
+
+        return mktime(&timeStruct);
       }
 
-      TimeVal dosSplit(uint32_t dostime)
+      uint32_t timestamp_to_datetime(time_t dateTime)
       {
-        int t_sec = (((int)dostime << 1) & 0x3E);
-        int t_min = (((int)dostime >> 5) & 0x3F);
-        int t_hour = (((int)dostime >> 11) & 0x1F);
-        int t_day = (((int)dostime >> 16) & 0x1F);
-        int t_mon = (((int)dostime >> 21) & 0x0F) - 1;
-        int t_year = (((int)dostime >> 25) & 0x7F) + 80;
-        return TimeVal{t_year, t_mon, t_day, t_hour, t_min, t_sec};
+        tm timeStruct;
+#if defined(_WIN32)
+        localtime_s(&dateTime, &timeStruct);
+#else
+        struct tm* tmp = localtime(&dateTime);
+        memcpy(&timeStruct, tmp, sizeof(tm));
+#endif
+        uint16_t date = ((timeStruct.tm_year - 80) << 9) + ((timeStruct.tm_mon + 1) << 5) + timeStruct.tm_mday;
+        uint16_t time = (timeStruct.tm_hour << 11) + (timeStruct.tm_min << 5) + (timeStruct.tm_sec >> 1);
+		return (date << 16) | time;
       }
 
-      struct EntryCompare
+	  uint32_t timestamp_now()
+	  {
+        tm timeStruct;
+#if defined(_WIN32)
+        localtime_s(nullptr, &timeStruct);
+#else
+        struct tm* tmp = localtime(nullptr);
+        memcpy(&timeStruct, tmp, sizeof(tm));
+#endif
+        uint16_t date = ((timeStruct.tm_year - 80) << 9) + ((timeStruct.tm_mon + 1) << 5) + timeStruct.tm_mday;
+        uint16_t time = (timeStruct.tm_hour << 11) + (timeStruct.tm_min << 5) + (timeStruct.tm_sec >> 1);
+		return (date << 16) | time;
+	  }
+
+      struct EntryCompare final
       {
         const std::string& entry;
-        EntryCompare(const std::string& e) : entry{e}
+        constexpr EntryCompare(const std::string& e) noexcept : entry{e}
         {
         }
 
-        bool operator()(const std::shared_ptr<ZipEntry> e)
+        bool operator()(const std::shared_ptr<ZipEntry> e) const
         {
-          return entry == e->getName();
+          return entry == e->getEntryName();
         }
       };
 
-      struct FileAccess
+      struct FileAccess final
       {
         FileAccess(boost::filesystem::path p, ZipArchive::OpenMode mode)
           : m_file(p.string(),
@@ -104,7 +115,7 @@ namespace cppzip
         mutable std::fstream m_file;
       };
 
-      struct MemoryAccess
+      struct MemoryAccess final
       {
         MemoryAccess(const std::vector<uint8_t>& d, ZipArchive::OpenMode mode) : m_data(d), m_offset{}
         {
@@ -141,10 +152,10 @@ namespace cppzip
         mutable size_t m_offset;
       };
 
-      struct ReadFromArray
+      struct ReadFromArray final
       {
         const uint8_t* buffer;
-        ReadFromArray(const uint8_t* a) : buffer(a)
+        ReadFromArray(const uint8_t* a) noexcept : buffer(a)
         {
         }
         template<typename T>
@@ -284,9 +295,10 @@ namespace cppzip
           }
           if (local_file_header.extra_field_length)
           {
-            std::vector<uint8_t> ex(local_file_header.extra_field_length);
-            const auto res = m_read(0, std::ios::cur, ex.data(), ex.size());
-            if (static_cast<size_t>(res) != ex.size())
+            local_file_header.extra_field.resize(local_file_header.extra_field_length);
+            const auto res =
+                m_read(0, std::ios::cur, local_file_header.extra_field.data(), local_file_header.extra_field.size());
+            if (static_cast<size_t>(res) != local_file_header.extra_field.size())
             {
               throw std::runtime_error("Could not read extra data");
             }
@@ -297,9 +309,9 @@ namespace cppzip
         }
       }
 
-      std::string getPath() const
+      auto getPath() const
       {
-        return m_path.string();
+        return m_path;
       }
 
       bool isEncrypted() const
@@ -318,7 +330,7 @@ namespace cppzip
         return m_end_of_central_directory_record.zip_comment;
       }
 
-      std::int64_t getNumberOfEntries() const
+      auto getNumberOfEntries() const noexcept
       {
         return m_end_of_central_directory_record.total_entries;
       }
@@ -328,9 +340,9 @@ namespace cppzip
         return m_entries;
       }
 
-      bool hasEntry(const std::string& name) const
+      auto hasEntry(const std::string& zipEntryName) const noexcept -> bool
       {
-        return std::find_if(std::begin(m_entries), std::end(m_entries), EntryCompare{name}) != m_entries.end();
+        return std::find_if(std::begin(m_entries), std::end(m_entries), EntryCompare{zipEntryName}) != m_entries.end();
       }
 
       std::shared_ptr<ZipEntry> getEntry(const std::string& name) const
@@ -348,12 +360,12 @@ namespace cppzip
         return false;
       }
 
-      bool addFile(const std::string& entryName, const std::string& file) const
+      auto addFile(const std::string& entryName, const boost::filesystem::path& file) const
       {
         return false;
       }
 
-      bool addData(const std::string& entryName, const void* data, std::uint64_t length)
+      auto addData(const std::string& entryName, const void* data, uint64_t length)
       {
         boost::filesystem::path path{entryName};
         if (path.is_absolute())
@@ -388,7 +400,7 @@ namespace cppzip
       {
         const auto crc32 = detail::getCrc32(reinterpret_cast<const uint8_t*>(data), length);
         const uint16_t compressionMode = data ? 8 : 0;
-        const auto val = dostime(2020, 3, 26, 16, 31, 11);
+        const auto val = timestamp_now();
         LocalFileHeader h{local_file_header_signature,
                           VERSION,
                           MakeFlags(),
@@ -401,7 +413,7 @@ namespace cppzip
                           0,
                           name,
                           {},
-						  {}};
+                          {}};
         m_entries.push_back(std::shared_ptr<ZipEntry>(new ZipEntry(h, data, length)));
 
         CentralDirectoryFileHeader cf{central_directory_file_header_signature,
@@ -495,7 +507,7 @@ namespace cppzip
 
     ZipArchive::~ZipArchive() = default;
 
-    std::string ZipArchive::getPath() const
+    auto ZipArchive::getPath() const -> boost::filesystem::path
     {
       return impl->getPath();
     }
@@ -515,7 +527,7 @@ namespace cppzip
       return impl->getComment();
     }
 
-    std::int64_t ZipArchive::getNumberOfEntries() const
+    auto ZipArchive::getNumberOfEntries() const noexcept -> int64_t
     {
       return impl->getNumberOfEntries();
     }
@@ -525,9 +537,9 @@ namespace cppzip
       return impl->getEntries();
     }
 
-    bool ZipArchive::hasEntry(const std::string& name) const
+    auto ZipArchive::hasEntry(const std::string& zipEntryName) const noexcept -> bool
     {
-      return impl->hasEntry(name);
+      return impl->hasEntry(zipEntryName);
     }
 
     std::shared_ptr<ZipEntry> ZipArchive::getEntry(const std::string& name) const
@@ -540,12 +552,12 @@ namespace cppzip
       return impl->renameEntry(entry, newName);
     }
 
-    bool ZipArchive::addFile(const std::string& entryName, const std::string& file) const
+    auto ZipArchive::addFile(const std::string& entryName, const boost::filesystem::path& file) const -> bool
     {
       return impl->addFile(entryName, file);
     }
 
-    bool ZipArchive::addData(const std::string& entryName, const void* data, std::uint64_t length)
+    auto ZipArchive::addData(const std::string& entryName, const void* data, uint64_t length) -> bool
     {
       return impl->addData(entryName, data, length);
     }
