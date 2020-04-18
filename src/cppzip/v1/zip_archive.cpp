@@ -10,9 +10,11 @@
 #include <central_directory_file_header.h>
 #include <cppzip/v1/zip_archive.h>
 #include <cppzip/v1/zip_entry.h>
+#include <digital_signature.h>
 #include <end_of_central_directory_record.h>
 #include <helper.h>
 #include <local_file_header.h>
+#include <zip_functions.h>
 
 namespace cppzip
 {
@@ -21,8 +23,9 @@ namespace cppzip
     namespace
     {
       constexpr uint16_t VERSION = 20;
+      constexpr uint16_t VERSION_NEEDED_TO_EXTRACT = 20;
 
-      constexpr auto MakeFlags() -> uint16_t
+      constexpr auto makeFlags() -> uint16_t
       {
         return 0;
       }
@@ -37,19 +40,9 @@ namespace cppzip
         return 0;
       }
 
-      time_t datetime_to_timestamp(uint16_t date, uint16_t time)
+      constexpr auto makeCompressionMode(bool hasData) -> uint16_t
       {
-        tm timeStruct;
-
-        timeStruct.tm_year = ((date >> 9) & 0x7f) + 80;
-        timeStruct.tm_mon = ((date >> 5) & 0x0f) - 1;
-        timeStruct.tm_mday = ((date)&0x1f);
-
-        timeStruct.tm_hour = ((time >> 11) & 0x1f);
-        timeStruct.tm_min = ((time >> 5) & 0x3f);
-        timeStruct.tm_sec = ((time << 1) & 0x3f);
-
-        return mktime(&timeStruct);
+        return hasData ? 8 : 0;
       }
 
       uint32_t timestamp_to_datetime(time_t dateTime)
@@ -63,11 +56,11 @@ namespace cppzip
 #endif
         uint16_t date = ((timeStruct.tm_year - 80) << 9) + ((timeStruct.tm_mon + 1) << 5) + timeStruct.tm_mday;
         uint16_t time = (timeStruct.tm_hour << 11) + (timeStruct.tm_min << 5) + (timeStruct.tm_sec >> 1);
-		return (date << 16) | time;
+        return (date << 16) | time;
       }
 
-	  uint32_t timestamp_now()
-	  {
+      uint32_t timestamp_now()
+      {
         tm timeStruct;
 #if defined(_WIN32)
         localtime_s(nullptr, &timeStruct);
@@ -77,9 +70,27 @@ namespace cppzip
 #endif
         uint16_t date = ((timeStruct.tm_year - 80) << 9) + ((timeStruct.tm_mon + 1) << 5) + timeStruct.tm_mday;
         uint16_t time = (timeStruct.tm_hour << 11) + (timeStruct.tm_min << 5) + (timeStruct.tm_sec >> 1);
-		return (date << 16) | time;
-	  }
+        return (date << 16) | time;
+      }
 
+      boost::filesystem::path makeCheckedPath(const std::string& entryName)
+      {
+        boost::filesystem::path path{entryName};
+        if (path.is_absolute())
+        {
+          throw std::runtime_error("Cannot add absolute path");
+        }
+        return path;
+      }
+
+#ifdef _MSC_VER
+      std::wstring toUtf16(const std::string& utf8)
+      {
+        std::u16string utf16 =
+            std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t>{}.from_bytes(utf8.data());
+        return utf16;
+      }
+#endif
       struct EntryCompare final
       {
         const std::string& entry;
@@ -96,9 +107,15 @@ namespace cppzip
       struct FileAccess final
       {
         FileAccess(boost::filesystem::path p, ZipArchive::OpenMode mode)
-          : m_file(p.string(),
-                   mode != ZipArchive::OpenMode::ReadOnly ? (std::ios::in | std::ios::out | std::ios::binary)
-                                                          : (std::ios::in | std::ios::binary))
+          : m_file(
+#ifdef _MSC_VER
+                ToUtf16(p.string())
+#else
+                p.string(),
+#endif
+                            mode != ZipArchive::OpenMode::ReadOnly
+                    ? (std::ios::in | std::ios::out | std::ios::binary)
+                    : (std::ios::in | std::ios::binary))
         {
           if (!m_file)
           {
@@ -236,6 +253,7 @@ namespace cppzip
         }
 
         const uint8_t* pos = central_directory.data();
+        const uint8_t* end = pos + central_directory.size();
         for (auto i = 0; i < m_end_of_central_directory_record.total_entries; ++i)
         {
           CentralDirectoryFileHeader central_directory_file_header;
@@ -264,6 +282,16 @@ namespace cppzip
             pos += central_directory_file_header.file_comment_lenght;
           }
           m_central_directory_file_headers.push_back(central_directory_file_header);
+        }
+        if (pos + digital_signature_size < end)
+        {
+          boost::fusion::for_each(m_digital_signature, ReadFromArray(pos));
+          pos += digital_signature_size;
+          if (m_digital_signature.size)
+          {
+            m_digital_signature.data.assign(pos, pos + m_digital_signature.size);
+            pos += m_digital_signature.size;
+          }
         }
         if (pos != central_directory.data() + central_directory.size())
         {
@@ -314,7 +342,7 @@ namespace cppzip
         return m_path;
       }
 
-      bool isEncrypted() const
+      bool isEncrypted() const noexcept
       {
         return false;
       }
@@ -325,7 +353,7 @@ namespace cppzip
         m_end_of_central_directory_record.comment = static_cast<uint16_t>(comment.size());
       }
 
-      std::string getComment() const
+      auto getComment() const -> std::string
       {
         return m_end_of_central_directory_record.zip_comment;
       }
@@ -335,7 +363,7 @@ namespace cppzip
         return m_end_of_central_directory_record.total_entries;
       }
 
-      std::vector<std::shared_ptr<ZipEntry>> getEntries() const
+      auto getEntries() const -> std::vector<ZipEntryPtr>
       {
         return m_entries;
       }
@@ -345,7 +373,7 @@ namespace cppzip
         return std::find_if(std::begin(m_entries), std::end(m_entries), EntryCompare{zipEntryName}) != m_entries.end();
       }
 
-      std::shared_ptr<ZipEntry> getEntry(const std::string& name) const
+      auto getEntry(const std::string& name) const -> ZipEntryPtr
       {
         const auto iter = std::find_if(std::begin(m_entries), std::end(m_entries), EntryCompare(name));
         if (iter != std::end(m_entries))
@@ -360,18 +388,29 @@ namespace cppzip
         return false;
       }
 
-      auto addFile(const std::string& entryName, const boost::filesystem::path& file) const
+      auto addFile(const std::string& entryName, const boost::filesystem::path& file)
       {
-        return false;
+        boost::filesystem::path path = makeCheckedPath(entryName);
+        if (!boost::filesystem::exists(file))
+        {
+          return false;
+        }
+
+        std::ifstream fs(
+#ifdef _MSC_VER
+            ToUtf16(file.string())
+#else
+            file.string()
+#endif
+                ,
+            std::ifstream::in | std::ifstream::binary);
+
+        std::vector<uint8_t> content((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
+        return addData(entryName, content.data(), content.size());
       }
 
-      auto addData(const std::string& entryName, const void* data, uint64_t length)
+      auto buildEntries(const boost::filesystem::path& path) -> boost::filesystem::path
       {
-        boost::filesystem::path path{entryName};
-        if (path.is_absolute())
-        {
-          throw std::runtime_error("Cannot add absolute path");
-        }
         boost::filesystem::path fullpath{};
         for (const auto& p : path)
         {
@@ -386,25 +425,33 @@ namespace cppzip
             newEntry(fullpath.string(), nullptr, 0);
           }
         }
+        return fullpath;
+      }
 
+      bool addData(const std::string& entryName, const void* data, uint64_t length)
+      {
+        boost::filesystem::path path = makeCheckedPath(entryName);
+        boost::filesystem::path fullpath = buildEntries(path);
         newEntry(fullpath.string(), data, length);
         return true;
       }
 
-      bool addEntry(const std::string& entryName) const
+      bool addEntry(const std::string& entryName)
       {
-        return false;
+        boost::filesystem::path path = makeCheckedPath(entryName);
+        boost::filesystem::path fullpath = buildEntries(path);
+        newEntry(fullpath.string(), nullptr, 0);
+        return true;
       }
 
       void newEntry(const std::string& name, const void* data, std::uint64_t length)
       {
         const auto crc32 = detail::getCrc32(reinterpret_cast<const uint8_t*>(data), length);
-        const uint16_t compressionMode = data ? 8 : 0;
         const auto val = timestamp_now();
         LocalFileHeader h{local_file_header_signature,
                           VERSION,
-                          MakeFlags(),
-                          compressionMode,
+                          makeFlags(),
+                          makeCompressionMode(data),
                           val,
                           crc32,
                           0,
@@ -418,9 +465,9 @@ namespace cppzip
 
         CentralDirectoryFileHeader cf{central_directory_file_header_signature,
                                       VERSION,
-                                      VERSION,
-                                      MakeFlags(),
-                                      compressionMode,
+                                      VERSION_NEEDED_TO_EXTRACT,
+                                      makeFlags(),
+                                      makeCompressionMode(data),
                                       val,
                                       crc32,
                                       static_cast<uint32_t>(m_entries.back()->compressedSize()),
@@ -488,6 +535,7 @@ namespace cppzip
       std::function<long long(std::streamsize, std::ios::seekdir, uint8_t*, size_t)> m_read;
       EndOfCentralDirectoryRecord m_end_of_central_directory_record;
       std::vector<CentralDirectoryFileHeader> m_central_directory_file_headers;
+      DigitalSignature m_digital_signature;
       std::vector<std::shared_ptr<ZipEntry>> m_entries;
     };
 
@@ -512,7 +560,7 @@ namespace cppzip
       return impl->getPath();
     }
 
-    bool ZipArchive::isEncrypted() const
+    bool ZipArchive::isEncrypted() const noexcept
     {
       return impl->isEncrypted();
     }
@@ -532,7 +580,7 @@ namespace cppzip
       return impl->getNumberOfEntries();
     }
 
-    std::vector<std::shared_ptr<ZipEntry>> ZipArchive::getEntries() const
+    auto ZipArchive::getEntries() const -> std::vector<ZipEntryPtr>
     {
       return impl->getEntries();
     }
@@ -542,7 +590,7 @@ namespace cppzip
       return impl->hasEntry(zipEntryName);
     }
 
-    std::shared_ptr<ZipEntry> ZipArchive::getEntry(const std::string& name) const
+    auto ZipArchive::getEntry(const std::string& name) const -> ZipEntryPtr
     {
       return impl->getEntry(name);
     }
@@ -552,7 +600,7 @@ namespace cppzip
       return impl->renameEntry(entry, newName);
     }
 
-    auto ZipArchive::addFile(const std::string& entryName, const boost::filesystem::path& file) const -> bool
+    auto ZipArchive::addFile(const std::string& entryName, const boost::filesystem::path& file) -> bool
     {
       return impl->addFile(entryName, file);
     }
@@ -562,7 +610,7 @@ namespace cppzip
       return impl->addData(entryName, data, length);
     }
 
-    bool ZipArchive::addEntry(const std::string& entryName) const
+    bool ZipArchive::addEntry(const std::string& entryName)
     {
       return impl->addEntry(entryName);
     }

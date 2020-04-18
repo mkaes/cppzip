@@ -15,6 +15,7 @@
 #include <cppzip/v1/zip_entry.h>
 #include <helper.h>
 #include <local_file_header.h>
+#include <zip_functions.h>
 
 namespace cppzip
 {
@@ -43,27 +44,34 @@ namespace cppzip
         }
       }
 
-      auto getEntryName() const
+      auto getEntryName() const -> std::string
       {
         return m_local_file_header.file_name;
       }
 
-      std::uint16_t getCompressionMethod() const
+      auto getDate() const noexcept -> time_t
       {
-        return m_local_file_header.compression_method;
+        const uint16_t date = m_local_file_header.file_modification >> 16 & 0xFFFF;
+        const uint16_t time = m_local_file_header.file_modification & 0xFFFF;
+        return datetime_to_timestamp(date, time);
       }
 
-      std::uint16_t getEncryptionMethod()
+      auto getCompressionMethod() const noexcept -> CompressionMethod
+      {
+        return static_cast<CompressionMethod>(m_local_file_header.compression_method);
+      }
+
+      auto getEncryptionMethod() const noexcept -> uint16_t
       {
         return 0;
       }
 
-      std::uint64_t getCompressedSize() const
+      auto getCompressedSize() const noexcept -> uint64_t
       {
         return m_local_file_header.compressed_size;
       }
 
-      std::uint64_t getUncompressedSize() const
+      auto getUncompressedSize() const noexcept -> uint64_t
       {
         return m_local_file_header.uncompressed_size;
       }
@@ -73,14 +81,14 @@ namespace cppzip
         return m_local_file_header.crc32;
       }
 
-      bool isDirectory() const
+      bool isDirectory() const noexcept
       {
-        return m_local_file_header.uncompressed_size == 0;
+        return !m_local_file_header.file_name.empty() && m_local_file_header.file_name.back() == '/';
       }
 
-      bool isFile() const
+      bool isFile() const noexcept
       {
-        return m_local_file_header.uncompressed_size != 0;
+        return !isDirectory();
       }
 
       bool setComment(const std::string& str)
@@ -90,12 +98,12 @@ namespace cppzip
         return true;
       }
 
-      std::string getComment() const
+      auto getComment() const -> std::string
       {
         return m_local_file_header.file_name;
       }
 
-      int readContent(std::ostream& ofOutput) const
+      auto readContent(std::ostream& ofOutput) const -> int64_t
       {
         if (m_data.empty() && m_local_file_header.uncompressed_size)
         {
@@ -172,22 +180,22 @@ namespace cppzip
       return impl->getEntryName();
     }
 
-    std::uint16_t ZipEntry::getCompressionMethod() const
+    auto ZipEntry::getCompressionMethod() const noexcept -> CompressionMethod
     {
       return impl->getCompressionMethod();
     }
 
-    std::uint16_t ZipEntry::getEncryptionMethod() const
+    auto ZipEntry::getEncryptionMethod() const noexcept -> uint16_t
     {
       return impl->getEncryptionMethod();
     }
 
-    std::uint64_t ZipEntry::getCompressedSize() const
+    auto ZipEntry::getCompressedSize() const noexcept -> uint64_t
     {
       return impl->getCompressedSize();
     }
 
-    std::uint64_t ZipEntry::getUncompressedSize() const
+    auto ZipEntry::getUncompressedSize() const noexcept -> uint64_t
     {
       return impl->getUncompressedSize();
     }
@@ -197,12 +205,12 @@ namespace cppzip
       return impl->getCRC();
     }
 
-    bool ZipEntry::isDirectory() const
+    bool ZipEntry::isDirectory() const noexcept
     {
       return impl->isDirectory();
     }
 
-    bool ZipEntry::isFile() const
+    bool ZipEntry::isFile() const noexcept
     {
       return impl->isFile();
     }
@@ -212,12 +220,12 @@ namespace cppzip
       return impl->setComment(str);
     }
 
-    std::string ZipEntry::getComment() const
+    auto ZipEntry::getComment() const -> std::string
     {
       return impl->getComment();
     }
 
-    int ZipEntry::readContent(std::ostream& ofOutput) const
+    auto ZipEntry::readContent(std::ostream& ofOutput) const -> int64_t
     {
       return impl->readContent(ofOutput);
     }

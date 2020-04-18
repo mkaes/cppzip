@@ -17,6 +17,7 @@ namespace cppzip
   inline namespace v1
   {
     class ZipEntry;
+    using ZipEntryPtr = std::shared_ptr<ZipEntry>;
 
     /**
      * The ZipArchive which represents a zip file or a in memory zip file
@@ -52,7 +53,7 @@ namespace cppzip
       /**
        * Returns true if the ZipArchive is encrypted.
        */
-      bool isEncrypted() const;
+      bool isEncrypted() const noexcept;
 
       /**
        * Set the comment of the archive.
@@ -62,7 +63,7 @@ namespace cppzip
       /**
        * Get the comment of the archive.
        */
-      std::string getComment() const;
+      auto getComment() const -> std::string;
 
       /**
        * Returns the number of entries in this zip file (folders are included).
@@ -72,7 +73,7 @@ namespace cppzip
       /**
        * Returns all the entries of the ZipArchive.
        */
-      std::vector<std::shared_ptr<ZipEntry>> getEntries() const;
+      auto getEntries() const -> std::vector<ZipEntryPtr>;
 
       /**
        * Return true if an entry with the specified name exists. If no such entry exists,
@@ -84,7 +85,7 @@ namespace cppzip
        * Return the ZipEntry for the specified entry name. If no such entry exists,
        * then a null-ZiPEntry will be returned
        */
-      std::shared_ptr<ZipEntry> getEntry(const std::string& name) const;
+      auto getEntry(const std::string& name) const -> ZipEntryPtr;
 
       /**
        * Renames the entry with the specified newName.
@@ -95,7 +96,7 @@ namespace cppzip
        * Add the specified file in the archive with the given entry. If the entry already exists,
        * it will be replaced. This method returns true if the file has been added successfully.
        */
-      auto addFile(const std::string& entryName, const boost::filesystem::path& file) const -> bool;
+      auto addFile(const std::string& entryName, const boost::filesystem::path& file) -> bool;
 
       /**
        * Add the given data to the specified entry name in the archive. If the entry already exists,
@@ -107,8 +108,11 @@ namespace cppzip
        * Add the specified entry to the ZipArchive. All the needed hierarchy will be created.
        * The entryName must be a directory.
        */
-      bool addEntry(const std::string& entryName) const;
+      bool addEntry(const std::string& entryName);
 
+	  /**
+	   * Write the current Archive to the output stream
+	   */
       void writeArchive(std::ostream& ofOutput);
 
     private:
